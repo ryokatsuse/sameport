@@ -1,0 +1,34 @@
+{
+  "name": "sameport",
+  "version": "0.1.0",
+  "description": "ローカル開発サーバーを実機(iPhone)から固定 URL + HTTPS で常時アクセス可能にする常駐ツール",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ryokatsuse/sameport.git"
+  },
+  "bin": {
+    "sameport": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "start": "node dist/cli.js start"
+  },
+  "dependencies": {
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  }
+}
