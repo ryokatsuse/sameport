@@ -4,7 +4,13 @@ import { mergeConfig, makePortFilter, DEFAULT_CONFIG } from "../config.js";
 import { classifyAddr, groupByPort, parseLsofListeners } from "../discovery.js";
 import { labelFromHostname } from "../hostname.js";
 import { buildPlist } from "../launchd.js";
-import { buildDownstreamHeaders, buildUpstreamHeaders, rewriteLocation } from "../proxy.js";
+import {
+  buildDownstreamHeaders,
+  buildUpstreamHeaders,
+  rewriteLocation,
+  rewriteReferer,
+  rewriteSetCookie,
+} from "../proxy.js";
 import { labelFor } from "../supervisor.js";
 
 test("parseLsofListeners はプロセス単位の -F 出力をレコードに展開する", () => {
@@ -144,4 +150,64 @@ test("buildPlist は XML をエスケープし start 引数を含む", () => {
   assert.match(plist, /<string>dev\.sameport<\/string>/);
   assert.match(plist, /<string>start<\/string>/);
   assert.match(plist, /app &amp; co/);
+});
+
+test("buildUpstreamHeaders は Origin を Host と同じオリジンに揃える", () => {
+  // Host だけ書き換えて Origin を素通しすると、CSRF 対策で POST が 403 になる
+  const headers = buildUpstreamHeaders(
+    { host: "dev.local:5555", origin: "https://dev.local:5555" },
+    { port: 5555 },
+  );
+  assert.equal(headers.origin, "http://localhost:5555");
+  assert.equal(headers.host, "localhost:5555");
+  assert.equal(
+    new URL(String(headers.origin)).host,
+    headers.host,
+    "Origin のホストと Host が一致している",
+  );
+});
+
+test("buildUpstreamHeaders は Referer のパスを保ったまま書き換える", () => {
+  const headers = buildUpstreamHeaders(
+    { host: "dev.local:5555", referer: "https://dev.local:5555/login?next=/dashboard#top" },
+    { port: 5555 },
+  );
+  assert.equal(headers.referer, "http://localhost:5555/login?next=/dashboard#top");
+});
+
+test("rewriteReferer は外部サイトからの遷移には触らない", () => {
+  assert.equal(
+    rewriteReferer("https://github.com/some/page", 5555, "dev.local:5555"),
+    "https://github.com/some/page",
+  );
+  assert.equal(rewriteReferer("(not a url)", 5555), "(not a url)");
+});
+
+test("rewriteSetCookie は localhost 向けの Domain を落とす", () => {
+  assert.equal(
+    rewriteSetCookie("session=abc; Domain=localhost; Path=/; HttpOnly"),
+    "session=abc; Path=/; HttpOnly",
+  );
+  assert.equal(rewriteSetCookie("session=abc; domain=.localhost; Path=/"), "session=abc; Path=/");
+  assert.equal(rewriteSetCookie("session=abc; Domain=127.0.0.1; Path=/"), "session=abc; Path=/");
+});
+
+test("rewriteSetCookie は localhost 以外の Domain と他の属性を残す", () => {
+  assert.equal(
+    rewriteSetCookie("session=abc; Domain=example.com; Path=/"),
+    "session=abc; Domain=example.com; Path=/",
+  );
+  assert.equal(
+    rewriteSetCookie("session=abc; Path=/; Secure; SameSite=None"),
+    "session=abc; Path=/; Secure; SameSite=None",
+  );
+});
+
+test("buildDownstreamHeaders は複数の Set-Cookie をすべて処理する", () => {
+  const headers = buildDownstreamHeaders(
+    { "set-cookie": ["a=1; Domain=localhost; Path=/", "b=2; Domain=example.com"] },
+    5555,
+    "dev.local",
+  );
+  assert.deepEqual(headers["set-cookie"], ["a=1; Path=/", "b=2; Domain=example.com"]);
 });

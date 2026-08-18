@@ -153,6 +153,12 @@ sameport uninstall      launchd 解除、ホスト名復元、証明書削除
 
 - **Host ヘッダ**: upstream には `Host: localhost:<port>` を送ります。
   Vite の `server.allowedHosts` や Next.js の `allowedDevOrigins` による Host 拒否を避けるためです。
+- **Origin / Referer**: Host と同じ `http://localhost:<port>` に揃えます。
+  Host だけ書き換えて Origin を素通しすると両者が食い違い、Next.js の Server Actions や
+  SvelteKit のフォーム POST など、この一致を CSRF 対策として見るフレームワークが POST を拒否します
+  （**ログインから先に進めない**、という形で出ます）。
+- **Set-Cookie の Domain**: `Domain=localhost` が付いていたら削って host-only クッキーにします。
+  そのままだとブラウザが `dev.local` 上でクッキーを保存せず、セッションが維持されません。
 - **Location ヘッダ**: upstream が `http://localhost:5173/foo` を返したら `https://dev.local:5173/foo` に書き換えます。
   ボディ内の絶対 URL は書き換えません（HTML 書き換えは副作用が大きいため非対応）。
 - **X-Forwarded-Host / -Proto / -For** を付与します。
@@ -164,6 +170,20 @@ HMR が繋がらない場合、`server.hmr.clientPort` を明示しているプ�
 
 `--host` 付きで起動済みの dev サーバー（`0.0.0.0` バインド）はポートが衝突するので proxy をスキップし、
 ポータル上に「直アクセス可（HTTP）」と表示します。
+
+## ポート番号が決まっているプロジェクト
+
+ログインや API が特定のポート（例: 5555）でないと通らない、というプロジェクトでも
+そのまま動きます。sameport はポート番号を保つので、Mac 側で `localhost:5555` に
+立てていれば iPhone からは `https://dev.local:5555` になります。**ポート番号は同じです。**
+
+upstream から見た Host / Origin / Referer はすべて `localhost:5555` に揃えて送るため、
+「`localhost:5555` からのアクセスのみ許可」というサーバー側のチェックも通ります。
+
+ただし iPhone のアドレスバーに `localhost:5555` と打つことはできません。
+iPhone にとって `localhost` は iPhone 自身を指すためで、これは原理的な制約です。
+`dev.local:5555` を使ってください。Mac 側からも同じ `https://dev.local:5555` で開けるので、
+両方の端末で URL を揃えられます。
 
 ## 制限
 

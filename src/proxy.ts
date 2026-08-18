@@ -25,10 +25,35 @@ export interface UpstreamHeaderOptions {
   forUpgrade?: boolean;
 }
 
+/** upstream 自身から見た自分のオリジン。Host の書き換え先と揃える */
+function upstreamOrigin(port: number): string {
+  return `http://localhost:${port}`;
+}
+
+/**
+ * Referer を upstream 自身のオリジンに書き換える。パスとクエリは保つ。
+ * 自分宛て以外（外部サイトからの遷移）は触らない。
+ */
+export function rewriteReferer(value: string, port: number, requestHost?: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return value;
+  }
+  if (requestHost !== undefined && url.host !== requestHost) return value;
+  return `${upstreamOrigin(port)}${url.pathname}${url.search}${url.hash}`;
+}
+
 /**
  * upstream へ送るヘッダを組み立てる。
  * Host は `localhost:<port>` に書き換える（Vite の server.allowedHosts /
  * Next.js の allowedDevOrigins による Host 拒否を回避し、プロジェクト側の設定変更を不要にする。§6）。
+ *
+ * Origin / Referer も同じオリジンに揃える。Host だけ書き換えて Origin を素通しすると、
+ * Origin(https://dev.local:5555) と Host(localhost:5555) が食い違う。この 2 つの一致を
+ * CSRF 対策として見るフレームワーク（Next.js の Server Actions、SvelteKit のフォーム POST など）は
+ * そこで POST を拒否するため、「ログインから先に進めない」という形で現れる。
  */
 export function buildUpstreamHeaders(
   headers: http.IncomingHttpHeaders,
@@ -42,6 +67,14 @@ export function buildUpstreamHeaders(
     if (k === "host") continue;
     if (k === "x-forwarded-for" || k === "x-forwarded-host" || k === "x-forwarded-proto") continue;
     if (!opts.forUpgrade && HOP_BY_HOP.has(k)) continue;
+    if (k === "origin") {
+      out[key] = upstreamOrigin(opts.port);
+      continue;
+    }
+    if (k === "referer" && typeof value === "string") {
+      out[key] = rewriteReferer(value, opts.port, originalHost);
+      continue;
+    }
     out[key] = value;
   }
   out["host"] = `localhost:${opts.port}`;
@@ -67,6 +100,25 @@ export function rewriteLocation(value: string, upstreamPort: number, hostname: s
   return `https://${hostname}:${port}${rest}`;
 }
 
+/**
+ * Set-Cookie の Domain 属性を落とす。
+ *
+ * upstream が `Domain=localhost` を付けてくると、ブラウザは dev.local 上では
+ * そのクッキーを保存しない。セッションが保持されずログインし直しになるので、
+ * localhost を指す Domain だけ削って host-only クッキーにする。
+ */
+export function rewriteSetCookie(value: string): string {
+  return value
+    .split(";")
+    .filter((part) => {
+      const m = /^\s*domain\s*=\s*(.+?)\s*$/i.exec(part);
+      if (!m) return true;
+      const domain = m[1].replace(/^\./, "").toLowerCase();
+      return domain !== "localhost" && domain !== "127.0.0.1" && domain !== "::1";
+    })
+    .join(";");
+}
+
 /** クライアントへ返すレスポンスヘッダ（hop-by-hop を除去し Location を書き換える） */
 export function buildDownstreamHeaders(
   headers: http.IncomingHttpHeaders,
@@ -80,6 +132,10 @@ export function buildDownstreamHeaders(
     if (HOP_BY_HOP.has(k)) continue;
     if (k === "location" && typeof value === "string") {
       out[key] = rewriteLocation(value, upstreamPort, hostname);
+      continue;
+    }
+    if (k === "set-cookie") {
+      out[key] = (Array.isArray(value) ? value : [value]).map((c) => rewriteSetCookie(String(c)));
       continue;
     }
     out[key] = value;
