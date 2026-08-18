@@ -95,10 +95,9 @@ export const PORTAL_HTML = `<!doctype html>
     <h2>証明書</h2>
     <p>
       ページが「安全ではありません」と表示される場合は、
-      <a href="/rootCA.pem" download="rootCA.pem">ルート証明書をインストール</a>
-      したあと、iPhone の 設定 → 一般 → VPN とデバイス管理 でプロファイルをインストールし、さらに
-      <strong>設定 → 一般 → 情報 → 証明書信頼設定 → mkcert のトグルを ON</strong>
-      にしてください（ここを飛ばすと動きません）。
+      <a id="ca-link" href="#">証明書のセットアップページを開く</a>
+      とインストール手順に進めます（このページは信頼される前の HTTPS なので、
+      プロファイルの配布だけは平文 HTTP の別ページで行います）。
     </p>
     <p id="cert-expiry"></p>
   </section>
@@ -165,6 +164,10 @@ export const PORTAL_HTML = `<!doctype html>
       history.appendChild(simpleItem(h.label || ("ポート " + h.port), h.port, "https://" + state.hostname + ":" + h.port + "/"));
     });
     historySection.hidden = state.servers.length > 0 || historyEntries.length === 0;
+
+    if (state.bootstrapUrl) {
+      document.getElementById("ca-link").setAttribute("href", state.bootstrapUrl);
+    }
 
     if (state.certExpiresAt) {
       document.getElementById("cert-expiry").textContent =

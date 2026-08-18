@@ -17,7 +17,7 @@ function selfSignedTls(): { key: Buffer; cert: Buffer } {
     "req", "-x509", "-newkey", "rsa:2048", "-nodes",
     "-keyout", keyFile, "-out", certFile,
     "-days", "1", "-subj", "/CN=dev.local",
-  ]);
+  ], { stdio: "ignore" });
   const material = { key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) };
   fs.rmSync(dir, { recursive: true, force: true });
   return material;
@@ -27,6 +27,7 @@ function baseState(): PortalState {
   return {
     hostname: "dev.local",
     portalPort: 0,
+    bootstrapUrl: "http://192.168.1.10:8480/",
     lanIp: "192.168.1.10",
     iface: "en0",
     ssid: "home",
@@ -54,7 +55,6 @@ function startPortal(
   const portal = new Portal({
     tls: selfSignedTls(),
     getState,
-    getCaRoot: async () => null,
     log: nullLogger,
   });
   // listen(0) でエフェメラルポートを割り当て、実際に開いたポートを拾う
@@ -70,14 +70,19 @@ function startPortal(
   });
 }
 
-function fetchPortal(port: number, urlPath: string): Promise<{ status: number; body: string }> {
+function fetchPortal(
+  port: number,
+  urlPath: string,
+): Promise<{ status: number; body: string; location?: string }> {
   return new Promise((resolve, reject) => {
     const req = https.request(
       { host: "127.0.0.1", port, path: urlPath, rejectUnauthorized: false, agent: false },
       (res) => {
         let body = "";
         res.on("data", (c) => (body += c));
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, body, location: res.headers.location }),
+        );
       },
     );
     req.on("error", reject);
@@ -139,9 +144,13 @@ test("/events は SSE で初期状態を流し、broadcast で更新を配る", 
   assert.match(received, /"servers":\[\]/, "broadcast 後の空一覧が届く");
 });
 
-test("CA が無いときの /rootCA.pem は 404 と対処を返す", async (t) => {
+test("証明書の配布要求は平文 HTTP のセットアップページへ 302 する", async (t) => {
+  // 信頼される前の HTTPS では iOS がプロファイルを取得できないため、
+  // ポータルは自分では配らず平文 HTTP 側へ送る
   const { port } = await startPortal(t, baseState);
-  const res = await fetchPortal(port, "/rootCA.pem");
-  assert.equal(res.status, 404);
-  assert.match(res.body, /mkcert -install/);
+  for (const p of ["/rootCA.pem", "/rootCA.mobileconfig"]) {
+    const res = await fetchPortal(port, p);
+    assert.equal(res.status, 302, p);
+    assert.equal(res.location, "http://192.168.1.10:8480/", p);
+  }
 });

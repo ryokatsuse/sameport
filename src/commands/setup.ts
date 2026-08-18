@@ -10,6 +10,7 @@ import {
 import { loadConfig, saveConfig } from "../config.js";
 import { getLocalHostName, labelFromHostname, setLocalHostName } from "../hostname.js";
 import { installAgent } from "../launchd.js";
+import { getDefaultInterface, getLanIp } from "../network.js";
 import { printQr } from "../qr.js";
 import { confirm } from "../prompt.js";
 import { CONFIG_FILE } from "../paths.js";
@@ -21,20 +22,26 @@ export interface SetupOptions {
   skipAgent: boolean;
 }
 
-const IPHONE_STEPS = `
+function iphoneSteps(portalUrl: string): string {
+  return `
 iPhone 側の初回セットアップ（1 回だけ）
-  1. 上の QR をカメラで読み取り、ポータルを開く
-     （この時点では証明書エラーが出ます。「詳細 → このまま進む」で開いてください）
-  2. ポータルの「ルート証明書をインストール」をタップし、プロファイルをダウンロード
+  1. 上の QR を iPhone のカメラで読み取り、【Safari で】開く
+     ここは平文 HTTP のセットアップページなので、証明書エラーは出ません
+  2. 「ルート証明書をインストール」をタップ →「許可」→「閉じる」
   3. 設定 → 一般 → VPN とデバイス管理 → ダウンロード済みプロファイル → インストール
-  4. 設定 → 一般 → 情報 → 証明書信頼設定 → mkcert のトグルを ON
+  4. 設定 → 一般 → 情報 → 証明書信頼設定 → sameport / mkcert のトグルを ON
      ★ ここを飛ばすと動きません。最頻出のハマりどころです
-  5. ポータルをホーム画面に追加
+  5. セットアップページの「ポータルを開く」でポータルへ移動し、ホーム画面に追加
+     以降ブックマークするのはこの URL だけです:
+       ${portalUrl}
 
 補足
+  ・証明書のインストールは必ず Safari で行ってください。Chrome など他のブラウザでは
+    プロファイルのダウンロードに失敗します
   ・初回起動時に macOS のファイアウォール許可ダイアログが出ることがあります。許可してください
   ・クライアント分離された Wi-Fi（社内・カフェ）では原理的に届きません
 `;
+}
 
 export async function setup(opts: SetupOptions): Promise<number> {
   const config = loadConfig();
@@ -114,7 +121,20 @@ export async function setup(opts: SetupOptions): Promise<number> {
       (expiry ? `証明書の有効期限: ${expiry.toLocaleDateString("ja-JP")}\n` : ""),
   );
 
-  await printQr(`https://${config.hostname}:${config.portalPort}/`);
-  process.stdout.write(IPHONE_STEPS);
+  // 初回の QR は「証明書配布ページ」を指す。ポータル(HTTPS)は証明書を信頼させるまで
+  // iPhone がプロファイルを取得できないため、入口を平文 HTTP 側にする。
+  // ホスト名解決もまだ確認できていない段階なので、確実な LAN IP を使う
+  const iface =
+    config.network.interface === "auto" ? await getDefaultInterface() : config.network.interface;
+  const ip = iface ? await getLanIp(iface) : null;
+  const host = ip ?? config.hostname;
+  await printQr(`http://${host}:${config.bootstrapPort}/`);
+  process.stdout.write(iphoneSteps(`https://${config.hostname}:${config.portalPort}/`));
+  if (!ip) {
+    process.stdout.write(
+      "\n! LAN IP を取得できなかったため QR はホスト名で生成しました。" +
+        "ネットワーク接続後に `sameport qr --setup` で取り直せます\n",
+    );
+  }
   return 0;
 }

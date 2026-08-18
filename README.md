@@ -69,16 +69,33 @@ sameport setup
 4. Mac の LocalHostName を `dev` に変更（**確認プロンプトあり・sudo が必要**）
    → mDNS が `dev.local` を広告するようになり、IP が変わっても追随します
 5. launchd に登録（ログイン時に自動起動）
-6. ポータル URL の QR と iPhone 側の手順を表示
+6. 証明書インストール用ページ（平文 HTTP）の QR と iPhone 側の手順を表示
 
 ### iPhone 側（1 回だけ）
 
-1. `sameport qr` の QR をカメラで読み取りポータルを開く（この時点では証明書エラーが出ます。「詳細 → このまま進む」）
-2. ポータルの「ルート証明書をインストール」をタップ
+1. `sameport setup`（または `sameport qr --setup`）の QR をカメラで読み取り、**Safari で**開く
+   これは平文 HTTP のセットアップページなので証明書エラーは出ません
+2. 「ルート証明書をインストール」をタップ →「許可」→「閉じる」
 3. 設定 → 一般 → VPN とデバイス管理 → ダウンロード済みプロファイル → インストール
-4. **設定 → 一般 → 情報 → 証明書信頼設定 → mkcert のトグルを ON**
+4. **設定 → 一般 → 情報 → 証明書信頼設定 → sameport / mkcert のトグルを ON**
    ← ここを飛ばすと動きません。最頻出のハマりどころです
-5. ポータルをホーム画面に追加
+5. セットアップページの「ポータルを開く」でポータルへ移動し、ホーム画面に追加
+
+証明書のインストールは必ず **Safari** で行ってください。Chrome など他のブラウザでは
+プロファイルのダウンロードに失敗します。
+
+#### なぜ証明書の配布だけ平文 HTTP なのか
+
+ポータルは mkcert の証明書で HTTPS 配信していますが、その証明書を信頼させる前に
+そこからルート CA を配ろうとすると、iOS は「プロファイルをダウンロードできませんでした」で
+失敗します。ページ自体は「このまま進む」で開けても、プロファイルの取得は別経路で
+TLS 検証されるためです。この鶏と卵を避けるため、CA の配布だけは平文 HTTP の
+別ポート（デフォルト 8480）で行います。配るのは公開鍵であるルート CA 証明書だけで、
+秘密鍵は一切ネットワークに出ません。
+
+証明書は iOS が扱いやすい構成プロファイル（`.mobileconfig`）に包んで
+`application/x-apple-aspen-config` で返しています。生の `.pem` を直接配ると
+iOS 15 以降は失敗しがちです。
 
 ## コマンド
 
@@ -87,6 +104,7 @@ sameport setup          初回セットアップ
 sameport start          フォアグラウンド起動（デバッグ用）
 sameport status         検出中サーバー、IP、証明書有効期限を表示
 sameport qr             ポータル URL の QR をターミナルに表示
+sameport qr --setup     証明書インストール用ページの QR を表示（初回・平文 HTTP）
 sameport cert --renew   証明書を再発行
 sameport cert --add-ip  現在の LAN IP を SAN に追加して再発行（IP 直打ちしたいとき）
 sameport logs [-f]      ログを表示
@@ -100,7 +118,7 @@ sameport uninstall      launchd 解除、ホスト名復元、証明書削除
 - 検出中の dev サーバー一覧（ポート / プロジェクト名 / プロセス名）をタップで開ける
 - SSE で自動更新。Mac で `npm run dev` すると数秒で一覧に出ます
 - 何も起動していないときは直近に見えていたサーバーの履歴を表示
-- ルート CA（`rootCA.pem`）のダウンロードリンク
+- 証明書セットアップページ（平文 HTTP）への導線
 - 現在の LAN IP / インターフェース / SSID（デバッグ用）
 - ダークモード対応。一覧は `<ul>` + リンクで、更新は件数のみ `aria-live` で通知します
 
@@ -112,6 +130,7 @@ sameport uninstall      launchd 解除、ホスト名復元、証明書削除
 {
   "hostname": "dev.local",
   "portalPort": 8443,
+  "bootstrapPort": 8480,      // ルート CA を配る平文 HTTP のポート
   "ports": {
     "mode": "auto",           // "auto" | "manual"
     "allow": [],              // manual 時、あるいは auto の追加許可（deny より優先）
@@ -164,7 +183,8 @@ npm run watch
 ```
 
 テストは実際に loopback でサーバーを立てて、Host 書き換え・Location 書き換え・502・
-WebSocket の Upgrade 中継・ポータルの HTTPS/SSE 配信までを通しで検証します。
+WebSocket の Upgrade 中継・ポータルの HTTPS/SSE 配信・構成プロファイルの中身と
+配布した CA での TLS 検証までを通しで確認します。
 
 環境変数 `SAMEPORT_CONFIG_DIR` / `SAMEPORT_STATE_DIR` で設定・状態の保存先を差し替えられます。
 

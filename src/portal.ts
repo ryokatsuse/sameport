@@ -1,8 +1,6 @@
-import fs from "node:fs";
 import type http from "node:http";
 import https from "node:https";
 import type net from "node:net";
-import path from "node:path";
 import type { TlsMaterial } from "./cert.js";
 import type { BoundTo } from "./discovery.js";
 import type { HistoryEntry } from "./history.js";
@@ -21,6 +19,8 @@ export interface PortalServerView {
 export interface PortalState {
   hostname: string;
   portalPort: number;
+  /** ルート CA を配る平文 HTTP の URL */
+  bootstrapUrl: string;
   lanIp: string | null;
   iface: string | null;
   ssid: string | null;
@@ -34,8 +34,6 @@ export interface PortalState {
 export interface PortalOptions {
   tls: TlsMaterial;
   getState: () => PortalState;
-  /** mkcert の CAROOT ディレクトリ（rootCA.pem 配布用）。null なら配布不可 */
-  getCaRoot: () => Promise<string | null>;
   log: Logger;
 }
 
@@ -114,7 +112,10 @@ export class Portal {
         this.handleSse(res);
         return;
       case "/rootCA.pem":
-        await this.serveCa(res);
+      case "/rootCA.mobileconfig":
+        // 信頼前の HTTPS ではプロファイルを配れないので、平文 HTTP 側へ送る
+        res.writeHead(302, { location: this.opts.getState().bootstrapUrl });
+        res.end();
         return;
       default:
         res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
@@ -133,19 +134,4 @@ export class Portal {
     res.on("close", () => this.clients.delete(res));
   }
 
-  private async serveCa(res: http.ServerResponse): Promise<void> {
-    const caRoot = await this.opts.getCaRoot();
-    const file = caRoot ? path.join(caRoot, "rootCA.pem") : null;
-    if (!file || !fs.existsSync(file)) {
-      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-      res.end("rootCA.pem が見つかりません。Mac 側で `mkcert -install` を実行してください\n");
-      return;
-    }
-    // iOS がプロファイルとして認識する content-type にする
-    res.writeHead(200, {
-      "content-type": "application/x-x509-ca-cert",
-      "content-disposition": 'attachment; filename="rootCA.pem"',
-    });
-    res.end(fs.readFileSync(file));
-  }
 }

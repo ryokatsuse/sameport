@@ -7,6 +7,7 @@ import { status } from "./commands/status.js";
 import { uninstall } from "./commands/uninstall.js";
 import { loadConfig } from "./config.js";
 import { createLogger } from "./logger.js";
+import { getDefaultInterface, getLanIp } from "./network.js";
 import { printQr } from "./qr.js";
 import { startSupervisor } from "./supervisor.js";
 
@@ -17,6 +18,7 @@ const USAGE = `sameport — ローカル開発サーバーを実機から固定 
   sameport start          フォアグラウンド起動（デバッグ用）
   sameport status         検出中サーバー、IP、証明書有効期限を表示
   sameport qr             ポータル URL の QR をターミナルに表示
+  sameport qr --setup     証明書インストール用ページの QR を表示（初回・平文 HTTP）
   sameport cert --renew   証明書を再発行
   sameport cert --add-ip  現在の LAN IP を SAN に追加して再発行
   sameport logs [-f]      ログを表示
@@ -78,6 +80,16 @@ async function main(argv: string[]): Promise<number> {
       return status();
     case "qr": {
       const config = loadConfig();
+      if (has("--setup")) {
+        // 証明書インストール用の平文 HTTP ページ。LAN IP で出す
+        const iface =
+          config.network.interface === "auto"
+            ? await getDefaultInterface()
+            : config.network.interface;
+        const ip = iface ? await getLanIp(iface) : null;
+        await printQr(`http://${ip ?? config.hostname}:${config.bootstrapPort}/`);
+        return 0;
+      }
       await printQr(`https://${config.hostname}:${config.portalPort}/`);
       return 0;
     }

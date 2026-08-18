@@ -15,6 +15,8 @@ export interface PinnedEntry {
 export interface Config {
   hostname: string;
   portalPort: number;
+  /** ルート CA を配る平文 HTTP のポート（信頼前は HTTPS でプロファイルを配れないため） */
+  bootstrapPort: number;
   ports: PortsConfig;
   discovery: { intervalMs: number; graceMs: number };
   network: { interface: string; intervalMs: number };
@@ -26,6 +28,7 @@ export interface Config {
 export const DEFAULT_CONFIG: Config = {
   hostname: "dev.local",
   portalPort: 8443,
+  bootstrapPort: 8480,
   ports: {
     mode: "auto",
     allow: [],
@@ -65,7 +68,7 @@ export function saveConfig(config: Config): void {
 
 /**
  * discovery が proxy 対象にしてよいポートかどうかの判定を作る。
- * - ポータル自身のポートは常に除外
+ * - sameport 自身のポート（ポータル / CA 配布）は常に除外
  * - manual モードは allow のみ
  * - auto モードは deny を除外（allow は deny より優先）
  */
@@ -73,7 +76,7 @@ export function makePortFilter(config: Config): (port: number) => boolean {
   const allow = new Set(config.ports.allow);
   const deny = new Set(config.ports.deny);
   return (port: number): boolean => {
-    if (port === config.portalPort) return false;
+    if (port === config.portalPort || port === config.bootstrapPort) return false;
     if (config.ports.mode === "manual") return allow.has(port);
     if (allow.has(port)) return true;
     return !deny.has(port);

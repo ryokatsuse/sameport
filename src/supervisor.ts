@@ -1,6 +1,7 @@
 import path from "node:path";
 import { certExpiry, loadTls, renewIfExpiring } from "./cert.js";
 import { mkcertCARoot } from "./cert.js";
+import { BootstrapServer, makeCaReader } from "./bootstrap.js";
 import type { Config } from "./config.js";
 import { makePortFilter } from "./config.js";
 import { DiscoveryService, type DetectedServer } from "./discovery.js";
@@ -81,6 +82,8 @@ export async function startSupervisor(config: Config, log: Logger): Promise<Supe
     return {
       hostname: config.hostname,
       portalPort: config.portalPort,
+      // 証明書の案内は平文 HTTP 側へ誘導する。IP が取れないうちはホスト名で出す
+      bootstrapUrl: `http://${ip ?? config.hostname}:${config.bootstrapPort}/`,
       lanIp: ip,
       iface,
       ssid,
@@ -95,7 +98,13 @@ export async function startSupervisor(config: Config, log: Logger): Promise<Supe
   const portal = new Portal({
     tls,
     getState: buildState,
-    getCaRoot: mkcertCARoot,
+    log,
+  });
+
+  const bootstrap = new BootstrapServer({
+    getCaPem: makeCaReader(mkcertCARoot),
+    hostname: config.hostname,
+    getPortalUrl: () => `https://${config.hostname}:${config.portalPort}/`,
     log,
   });
 
@@ -116,6 +125,7 @@ export async function startSupervisor(config: Config, log: Logger): Promise<Supe
   });
 
   portal.start(config.portalPort);
+  bootstrap.start(config.bootstrapPort);
   network.start();
   discovery.start();
 
@@ -127,6 +137,7 @@ export async function startSupervisor(config: Config, log: Logger): Promise<Supe
       network.stop();
       proxies.closeAll();
       portal.stop();
+      bootstrap.stop();
     },
   };
 }
