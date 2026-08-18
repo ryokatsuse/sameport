@@ -1,7 +1,5 @@
-import fs from "node:fs";
 import http from "node:http";
 import type net from "node:net";
-import path from "node:path";
 import type { Logger } from "./logger.js";
 import { buildMobileconfig } from "./mobileconfig.js";
 
@@ -71,6 +69,8 @@ ${
     : `<div class="card">
   <p>ルート CA が見つかりませんでした。Mac 側で次を実行してください。</p>
   <p><code>mkcert -install</code> のあと <code>sameport setup</code></p>
+  <p class="muted">すでに実行済みでこの表示が出る場合は、Mac で <code>sameport status</code> を実行し、
+  「配布用ルート CA」の行を確認してください。</p>
 </div>`
 }
 </body>
@@ -144,19 +144,8 @@ export class BootstrapServer {
 
   private notFound(res: http.ServerResponse): void {
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-    res.end("ルート CA が見つかりません。Mac 側で `mkcert -install` を実行してください\n");
+    res.end(
+      "ルート CA が見つかりません。Mac 側で `mkcert -install` のあと `sameport setup` を実行してください\n",
+    );
   }
-}
-
-/** mkcert の CAROOT から rootCA.pem を読む */
-export function makeCaReader(getCaRoot: () => Promise<string | null>): () => Promise<Buffer | null> {
-  return async () => {
-    const caRoot = await getCaRoot();
-    if (!caRoot) return null;
-    try {
-      return fs.readFileSync(path.join(caRoot, "rootCA.pem"));
-    } catch {
-      return null;
-    }
-  };
 }

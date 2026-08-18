@@ -1,4 +1,5 @@
-import { certExpiry, certNames } from "../cert.js";
+import fs from "node:fs";
+import { CA_FILE, certExpiry, certNames, mkcertAvailable } from "../cert.js";
 import { loadConfig, makePortFilter } from "../config.js";
 import { detectOnce } from "../discovery.js";
 import { agentInstalled } from "../launchd.js";
@@ -26,6 +27,14 @@ export async function status(): Promise<number> {
     );
   } else {
     process.stdout.write("証明書: 未発行 (`sameport setup` を実行してください)\n");
+  }
+
+  // launchd 配下では PATH が最小で mkcert を呼べないため、CA はコピーを使う
+  process.stdout.write(
+    `配布用ルート CA: ${fs.existsSync(CA_FILE) ? CA_FILE : "未コピー (`sameport setup` を実行してください)"}\n`,
+  );
+  if (!(await mkcertAvailable())) {
+    process.stdout.write("  ! mkcert が見つかりません (brew install mkcert)\n");
   }
 
   if (process.platform === "darwin") {

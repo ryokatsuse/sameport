@@ -71,6 +71,12 @@ sameport setup
 5. launchd に登録（ログイン時に自動起動）
 6. 証明書インストール用ページ（平文 HTTP）の QR と iPhone 側の手順を表示
 
+> **注意**: `sameport setup` はルート CA を `~/.config/sameport/certs/rootCA.pem` にコピーします。
+> 常駐プロセスは launchd から起動され PATH が `/usr/bin:/bin:/usr/sbin:/sbin` しかないため、
+> Homebrew の `mkcert` を呼べません。実行時に `mkcert -CAROOT` へ問い合わせる作りだと
+> iPhone 側で「ルート CA が見つかりません」になります。状態は `sameport status` の
+> 「配布用ルート CA」の行で確認できます。
+
 ### iPhone 側（1 回だけ）
 
 1. `sameport setup`（または `sameport qr --setup`）の QR をカメラで読み取り、**Safari で**開く
@@ -191,6 +197,8 @@ iPhone にとって `localhost` は iPhone 自身を指すためで、これは�
 - **クライアント分離された AP**（社内 Wi-Fi、カフェ）では原理的に届きません
 - `.local` は mDNS なので、VPN クライアントによっては名前解決が奪われることがあります
 - Mac のファイアウォールが有効だと初回に許可ダイアログが出ます
+- iPhone で「ルート CA が見つかりません」と出る場合は、Mac で `sameport status` を実行して
+  「配布用ルート CA」がコピー済みか確認してください。未コピーなら `sameport setup` で解決します
 - Android は設計上動くはずですが検証していません
 
 ## 開発

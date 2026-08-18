@@ -9,6 +9,42 @@ export const CERT_FILE = path.join(CERTS_DIR, "server.pem");
 export const KEY_FILE = path.join(CERTS_DIR, "server-key.pem");
 const META_FILE = path.join(CERTS_DIR, "meta.json");
 
+/**
+ * ルート CA のコピー。
+ *
+ * 常駐プロセスは launchd から起動されるため PATH が /usr/bin:/bin:/usr/sbin:/sbin しかなく、
+ * Homebrew の mkcert (/opt/homebrew/bin など) を呼べない。実行時に mkcert -CAROOT へ
+ * 問い合わせる作りだと CA を配れなくなるので、setup 時にここへコピーしておく。
+ */
+export const CA_FILE = path.join(CERTS_DIR, "rootCA.pem");
+
+/** launchd 配下では PATH が最小限なので、Homebrew の場所も直接見る */
+const MKCERT_CANDIDATES = [
+  "/opt/homebrew/bin/mkcert", // Apple Silicon の Homebrew
+  "/usr/local/bin/mkcert", // Intel の Homebrew
+  "/opt/local/bin/mkcert", // MacPorts
+];
+
+let cachedMkcert: string | null = null;
+
+/** 実行可能な mkcert のパスを解決する。PATH → 既知の場所の順で探す */
+export async function resolveMkcert(): Promise<string | null> {
+  if (cachedMkcert && fs.existsSync(cachedMkcert)) return cachedMkcert;
+  for (const candidate of ["mkcert", ...MKCERT_CANDIDATES]) {
+    if ((await run(candidate, ["-version"])).code === 0) {
+      cachedMkcert = candidate;
+      return candidate;
+    }
+  }
+  return null;
+}
+
+async function runMkcert(args: string[]): Promise<{ code: number; stdout: string }> {
+  const bin = await resolveMkcert();
+  if (!bin) return { code: 127, stdout: "" };
+  return run(bin, args);
+}
+
 const RENEW_BEFORE_DAYS = 30;
 
 export interface TlsMaterial {
@@ -27,23 +63,53 @@ export function defaultSans(hostname: string): string[] {
 }
 
 export async function mkcertAvailable(): Promise<boolean> {
-  return (await run("mkcert", ["-version"])).code === 0;
+  return (await resolveMkcert()) !== null;
 }
 
 export async function mkcertCARoot(): Promise<string | null> {
-  const r = await run("mkcert", ["-CAROOT"]);
+  const r = await runMkcert(["-CAROOT"]);
   const dir = r.stdout.trim();
   return r.code === 0 && dir ? dir : null;
 }
 
 /** ローカル CA を作成し Mac のキーチェーンに登録する */
 export async function installLocalCA(): Promise<boolean> {
-  return (await run("mkcert", ["-install"])).code === 0;
+  return (await runMkcert(["-install"])).code === 0;
+}
+
+/**
+ * mkcert の CAROOT から rootCA.pem を設定ディレクトリにコピーする。
+ * 以降、常駐プロセスは mkcert を呼ばずにこのファイルを読む。
+ */
+export async function copyRootCA(): Promise<string | null> {
+  const caRoot = await mkcertCARoot();
+  if (!caRoot) return null;
+  const source = path.join(caRoot, "rootCA.pem");
+  try {
+    fs.mkdirSync(CERTS_DIR, { recursive: true });
+    fs.copyFileSync(source, CA_FILE);
+    return CA_FILE;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 配布用のルート CA を読む。コピーが無ければ mkcert に問い合わせ、
+ * 取れたらそのときコピーしておく（setup を通していない場合の保険）。
+ */
+export async function readRootCA(): Promise<Buffer | null> {
+  try {
+    return fs.readFileSync(CA_FILE);
+  } catch {
+    // コピーがまだ無い
+  }
+  return (await copyRootCA()) ? fs.readFileSync(CA_FILE) : null;
 }
 
 export async function issueCert(names: string[]): Promise<boolean> {
   fs.mkdirSync(CERTS_DIR, { recursive: true });
-  const r = await run("mkcert", [
+  const r = await runMkcert([
     "-cert-file",
     CERT_FILE,
     "-key-file",

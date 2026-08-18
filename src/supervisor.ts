@@ -1,7 +1,6 @@
 import path from "node:path";
-import { certExpiry, loadTls, renewIfExpiring } from "./cert.js";
-import { mkcertCARoot } from "./cert.js";
-import { BootstrapServer, makeCaReader } from "./bootstrap.js";
+import { certExpiry, loadTls, readRootCA, renewIfExpiring } from "./cert.js";
+import { BootstrapServer } from "./bootstrap.js";
 import type { Config } from "./config.js";
 import { makePortFilter } from "./config.js";
 import { DiscoveryService, type DetectedServer } from "./discovery.js";
@@ -102,7 +101,7 @@ export async function startSupervisor(config: Config, log: Logger): Promise<Supe
   });
 
   const bootstrap = new BootstrapServer({
-    getCaPem: makeCaReader(mkcertCARoot),
+    getCaPem: readRootCA,
     hostname: config.hostname,
     getPortalUrl: () => `https://${config.hostname}:${config.portalPort}/`,
     log,

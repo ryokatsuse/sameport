@@ -43,6 +43,12 @@ ${args.map((a) => `    <string>${escapeXml(a)}</string>`).join("\n")}
   <string>${escapeXml(path.join(STATE_DIR, "err.log"))}</string>
   <key>ProcessType</key>
   <string>Background</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <!-- launchd 既定の PATH には Homebrew が入っておらず mkcert を呼べない -->
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
 </dict>
 </plist>
 `;

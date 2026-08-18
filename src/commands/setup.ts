@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import {
   certExpiry,
+  copyRootCA,
   defaultSans,
   installLocalCA,
   issueCert,
@@ -63,6 +64,18 @@ export async function setup(opts: SetupOptions): Promise<number> {
   }
   const caRoot = await mkcertCARoot();
   process.stdout.write(`✓ ローカル CA を登録しました${caRoot ? ` (${caRoot})` : ""}\n`);
+
+  // 常駐プロセスは launchd 配下で PATH が最小限になり mkcert を呼べないので、
+  // ここでルート CA を設定ディレクトリにコピーしておく
+  const caCopy = await copyRootCA();
+  if (caCopy) {
+    process.stdout.write(`✓ ルート CA を配布用にコピーしました (${caCopy})\n`);
+  } else {
+    process.stderr.write(
+      "! ルート CA のコピーに失敗しました。iPhone に証明書を配れません。\n" +
+        "  `mkcert -install` が成功しているか確認してください\n",
+    );
+  }
 
   // 3. サーバー証明書（LAN IP は含めない。名前ベースでのアクセスを正とする）
   const names = defaultSans(config.hostname);
